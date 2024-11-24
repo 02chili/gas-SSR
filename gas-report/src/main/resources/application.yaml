@@ -1,0 +1,26 @@
+server:
+  port: 8084
+spring:
+  application:
+    name: gas-report
+  datasource:
+    url: jdbc:mysql://localhost:3306/lyh?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
+    username: root
+    password: 123456
+  cloud:
+    nacos:
+      server-addr: 127.0.0.1:8848
+
+
+  jpa:
+    hibernate:
+      ddl-auto: update  # 自动创建/更新数据库表结构, 生产环境建议关闭: none
+    show-sql: true      # 是否显示 SQL 语句
+    properties:
+      hibernate:
+        format_sql: true  # 格式化 SQL 输出日志
+
+  # 如果使用 MyBatis-Plus，可以添加以下配置：
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml  # 映射文件的位置
+  type-aliases-package: com.chili.entity  # 实体类所在包
