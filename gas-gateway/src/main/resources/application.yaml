@@ -5,7 +5,7 @@ spring:
     name: gateway
   cloud:
     nacos:
-      server-addr: 127.0.0.1:8848
+      server-addr: 8.137.82.104:8848
     gateway:
       default-filters: # default-filters下的过滤器可以作用于所有路由
         - JwtToken

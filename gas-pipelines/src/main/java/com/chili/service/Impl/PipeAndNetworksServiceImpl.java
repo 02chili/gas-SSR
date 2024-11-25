@@ -97,62 +97,107 @@ public class PipeAndNetworksServiceImpl implements PipeAndNetworksService {
 
     @Override
     public List<Map<String, Object>> getNodesByRange(Double latitude, Double longitude, Double radius) {
-        log.info("Starting getNodesByRange. Latitude: {}, Longitude: {}, Radius: {}", latitude, longitude, radius);
+        log.info("开始执行 getNodesByRange 方法。纬度: {}, 经度: {}, 半径: {}", latitude, longitude, radius);
 
         GeoOperations<String, String> geoOps = stringRedisTemplate.opsForGeo();
         List<Map<String, Object>> result = new ArrayList<>();
-        Circle circle = new Circle(new Point(longitude, latitude), new Distance(radius, Metrics.KILOMETERS));
+        String rangeKey = "geo_key:range";
 
         try {
-            log.info("Querying Redis for nearby nodes.");
-            GeoResults<RedisGeoCommands.GeoLocation<String>> nearbyNodes = geoOps.radius(
-                    GEO_KEY,
-                    circle,
-                    RedisGeoCommands.GeoRadiusCommandArgs.newGeoRadiusArgs().includeCoordinates()
-            );
+            // 查询 Redis 中缓存的范围
+            Map<Object, Object> cachedRange = stringRedisTemplate.opsForHash().entries(rangeKey);
 
-            if (nearbyNodes != null && !nearbyNodes.getContent().isEmpty()) {
-                log.info("Found nodes in Redis. Returning cached results.");
-                for (GeoResult<RedisGeoCommands.GeoLocation<String>> geoResult : nearbyNodes.getContent()) {
-                    RedisGeoCommands.GeoLocation<String> location = geoResult.getContent();
-                    if (location.getPoint() == null) {
-                        log.warn("Point is null for member: {}", location.getName());
-                        continue; // 跳过没有坐标的数据
+            if (cachedRange != null && !cachedRange.isEmpty()) {
+                double cachedLatitude = Double.parseDouble((String) cachedRange.getOrDefault("latitude", "0"));
+                double cachedLongitude = Double.parseDouble((String) cachedRange.getOrDefault("longitude", "0"));
+                double cachedRadius = Double.parseDouble((String) cachedRange.getOrDefault("radius", "0"));
+
+                // 判断当前查询是否在缓存范围内
+                boolean isWithinCachedRange = isWithinRange(latitude, longitude, radius, cachedLatitude, cachedLongitude, cachedRadius);
+                if (isWithinCachedRange) {
+                    log.info("查询范围在缓存范围内，从 Redis 获取附近节点数据。");
+                    GeoResults<RedisGeoCommands.GeoLocation<String>> nearbyNodes = geoOps.radius(
+                            GEO_KEY,
+                            new Circle(new Point(longitude, latitude), new Distance(radius, Metrics.KILOMETERS)),
+                            RedisGeoCommands.GeoRadiusCommandArgs.newGeoRadiusArgs().includeCoordinates()
+                    );
+
+                    if (nearbyNodes != null && !nearbyNodes.getContent().isEmpty()) {
+                        log.info("在 Redis 中找到 {} 个节点数据，返回缓存结果。", nearbyNodes.getContent().size());
+                        for (GeoResult<RedisGeoCommands.GeoLocation<String>> geoResult : nearbyNodes.getContent()) {
+                            RedisGeoCommands.GeoLocation<String> location = geoResult.getContent();
+                            if (location.getPoint() == null) continue;
+
+                            Map<String, Object> node = new HashMap<>();
+                            node.put("nodeId", location.getName());
+                            node.put("latitude", location.getPoint().getY());
+                            node.put("longitude", location.getPoint().getX());
+                            result.add(node);
+                        }
+                        return result;
                     }
-
-                    Map<String, Object> node = new HashMap<>();
-                    node.put("nodeId", location.getName());
-                    node.put("latitude", location.getPoint().getY());
-                    node.put("longitude", location.getPoint().getX());
-                    result.add(node);
+                } else {
+                    log.info("Redis 中缓存的范围不完全覆盖查询范围，部分数据可能缺失。");
                 }
-                return result;
             }
         } catch (Exception e) {
-            log.error("Error querying Redis. Falling back to database query.", e);
+            log.error("查询 Redis 出现错误，回退到数据库查询。", e);
         }
 
-        // 如果 Redis 查询失败或没有结果，从数据库查询
-        log.info("Querying database for nodes.");
-        result = pipeAndNetworksMapper.getNodesByRange(latitude, longitude, radius);
+        // 如果范围不匹配或缓存无结果，从数据库查询
+        log.info("从数据库查询节点数据。");
+        List<Map<String, Object>> dbResult = pipeAndNetworksMapper.getNodesByRange(latitude, longitude, radius);
 
-        if (!result.isEmpty()) {
-            log.info("Database query returned results. Caching results in Redis.");
-            for (Map<String, Object> node : result) {
-                try {
-                    geoOps.add(
-                            GEO_KEY,
-                            new Point((Double) node.get("longitude"), (Double) node.get("latitude")),
-                            String.valueOf(node.get("nodeId"))
-                    );
-                } catch (Exception e) {
-                    log.error("Error caching node in Redis. Node ID: {}", node.get("nodeId"), e);
-                }
+        if (!dbResult.isEmpty()) {
+            log.info("数据库查询返回了 {} 个节点数据，将结果缓存到 Redis 中。", dbResult.size());
+            for (Map<String, Object> node : dbResult) {
+                geoOps.add(
+                        GEO_KEY,
+                        new Point((Double) node.get("longitude"), (Double) node.get("latitude")),
+                        String.valueOf(node.get("nodeId"))
+                );
+                // 检查并避免重复缓存
+                log.info("缓存节点 ID: {}，经度: {}，纬度: {}", node.get("nodeId"), node.get("longitude"), node.get("latitude"));
             }
+
+            // 更新缓存范围
+            Map<String, String> newRange = new HashMap<>();
+            newRange.put("latitude", String.valueOf(latitude));
+            newRange.put("longitude", String.valueOf(longitude));
+            newRange.put("radius", String.valueOf(radius));
+            stringRedisTemplate.opsForHash().putAll(rangeKey, newRange);
+        } else {
+            log.warn("数据库查询未返回任何节点数据！");
         }
 
+        result.addAll(dbResult); // 合并数据库结果
         return result;
     }
+
+    /**
+     * 判断新查询范围是否被缓存范围覆盖
+     */
+    private boolean isWithinRange(Double latitude, Double longitude, Double radius,
+                                  Double cachedLatitude, Double cachedLongitude, Double cachedRadius) {
+        double distance = calculateDistance(latitude, longitude, cachedLatitude, cachedLongitude);
+        return distance + radius <= cachedRadius;
+    }
+
+    /**
+     * 计算两点之间的直线距离
+     */
+    private double calculateDistance(Double lat1, Double lon1, Double lat2, Double lon2) {
+        final int R = 6371; // 地球半径，单位：km
+        double latDistance = Math.toRadians(lat2 - lat1);
+        double lonDistance = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c; // 返回距离，单位：km
+    }
+
+
 
 
 }

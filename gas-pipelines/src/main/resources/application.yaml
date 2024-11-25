@@ -9,7 +9,7 @@ spring:
     password: 123456
   cloud:
     nacos:
-      server-addr: 127.0.0.1:8848
+      server-addr: 8.137.82.104:8848
   jpa:
     hibernate:
       ddl-auto: update  # 自动创建/更新数据库表结构, 生产环境建议关闭: none
@@ -19,7 +19,7 @@ spring:
         format_sql: true  # 格式化 SQL 输出日志
   data:
     redis:
-      host: localhost
+      host: 8.137.82.104
       password:
       port: 6379
 # 如果使用 MyBatis-Plus，可以添加以下配置：
