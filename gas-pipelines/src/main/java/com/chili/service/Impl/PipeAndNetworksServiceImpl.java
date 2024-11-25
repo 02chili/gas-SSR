@@ -42,33 +42,27 @@ public class PipeAndNetworksServiceImpl implements PipeAndNetworksService {
 
     @Override
     public List<Nodes> getAllNodes() {
-        List<Nodes> list = new ArrayList<>();
-        list = pipeAndNetworksMapper.getAllNodes();
-        return list;
+        return pipeAndNetworksMapper.getAllNodes();
     }
 
     @Override
     public Nodes getNodeById(int nodeId) {
-        Nodes nodes = pipeAndNetworksMapper.getNodeById(nodeId);
-        return nodes;
+        return pipeAndNetworksMapper.getNodeById(nodeId);
     }
 
     @Override
     public List<Pipelines> getAllPipelines() {
-        List<Pipelines> list = pipeAndNetworksMapper.getAllPipelines();
-        return list;
+        return pipeAndNetworksMapper.getAllPipelines();
     }
 
     @Override
     public Pipelines getPipelinesByid(int pipelineId) {
-        Pipelines pipelines = pipeAndNetworksMapper.getPipelinesByid(pipelineId);
-        return pipelines;
+        return pipeAndNetworksMapper.getPipelinesByid(pipelineId);
     }
 
     @Override
     public List<Pipelines> getPipelinesByNodeId(int nodeId) {
-        List<Pipelines> list = pipeAndNetworksMapper.getPipelinesByNodeId(nodeId);
-        return list;
+        return pipeAndNetworksMapper.getPipelinesByNodeId(nodeId);
     }
 
     @Override
@@ -90,7 +84,7 @@ public class PipeAndNetworksServiceImpl implements PipeAndNetworksService {
                 pipelinesList.add(hit.source());
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("使用ES搜索引擎搜索管道失败,搜索目标：{}",region);
         }
         return pipelinesList;
     }
@@ -107,7 +101,7 @@ public class PipeAndNetworksServiceImpl implements PipeAndNetworksService {
             // 查询 Redis 中缓存的范围
             Map<Object, Object> cachedRange = stringRedisTemplate.opsForHash().entries(rangeKey);
 
-            if (cachedRange != null && !cachedRange.isEmpty()) {
+            if (!cachedRange.isEmpty()) {
                 double cachedLatitude = Double.parseDouble((String) cachedRange.getOrDefault("latitude", "0"));
                 double cachedLongitude = Double.parseDouble((String) cachedRange.getOrDefault("longitude", "0"));
                 double cachedRadius = Double.parseDouble((String) cachedRange.getOrDefault("radius", "0"));
